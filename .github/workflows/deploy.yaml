@@ -1,0 +1,119 @@
+name: Deploy Lambda Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'add_user_topic/**'
+      - 'delete_user_topic/**'
+      - 'get_user_topics/**'
+      - 'register_user/**'
+      - 'ingest_news/**'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      add_user_topic: ${{ steps.filter.outputs.add_user_topic }}
+      delete_user_topic: ${{ steps.filter.outputs.delete_user_topic }}
+      get_user_topics: ${{ steps.filter.outputs.get_user_topics }}
+      register_user: ${{ steps.filter.outputs.register_user }}
+      ingest_news: ${{ steps.filter.outputs.ingest_news }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            add_user_topic:
+              - 'add_user_topic/**'
+            delete_user_topic:
+              - 'delete_user_topic/**'
+            get_user_topics:
+              - 'get_user_topics/**'
+            register_user:
+              - 'register_user/**'
+            ingest_news:
+              - 'ingest_news/**'
+
+  deploy:
+    name: Deploy ${{ matrix.function }}
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.add_user_topic == 'true' ||
+      needs.changes.outputs.delete_user_topic == 'true' ||
+      needs.changes.outputs.get_user_topics == 'true' ||
+      needs.changes.outputs.register_user == 'true' ||
+      needs.changes.outputs.ingest_news == 'true'
+
+    strategy:
+      matrix:
+        include:
+          - function: add_user_topic
+            lambda_name: attach-topic-to-user
+            changed: ${{ needs.changes.outputs.add_user_topic }}
+          - function: delete_user_topic
+            lambda_name: delete-user-topic
+            changed: ${{ needs.changes.outputs.delete_user_topic }}
+          - function: get_user_topics
+            lambda_name: get-user-topics
+            changed: ${{ needs.changes.outputs.get_user_topics }}
+          - function: register_user
+            lambda_name: cognito-post-confirmation
+            changed: ${{ needs.changes.outputs.register_user }}
+          - function: ingest_news
+            lambda_name: ingest-news
+            changed: ${{ needs.changes.outputs.ingest_news }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if unchanged
+        if: matrix.changed != 'true'
+        run: echo "No changes in ${{ matrix.function }}, skipping." && exit 0
+
+      - name: Set up Python
+        if: matrix.changed == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        if: matrix.changed == 'true'
+        working-directory: ${{ matrix.function }}/src
+        run: |
+          pip install -r requirements.txt -t ./package --upgrade
+          cp index.py ./package/
+          cd package
+          zip -r ../lambda.zip .
+
+      - name: Configure AWS credentials
+        if: matrix.changed == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region:     ${{ vars.AWS_REGION }}
+
+      - name: Upload to S3
+        if: matrix.changed == 'true'
+        run: |
+          aws s3 cp ${{ matrix.function }}/src/lambda.zip \
+            s3://${{ vars.ARTIFACTS_BUCKET }}/${{ matrix.function }}/lambda.zip \
+            --metadata "git-sha=${{ github.sha }}"
+
+      - name: Update Lambda
+        if: matrix.changed == 'true'
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ matrix.lambda_name }} \
+            --s3-bucket ${{ vars.ARTIFACTS_BUCKET }} \
+            --s3-key ${{ matrix.function }}/lambda.zip
