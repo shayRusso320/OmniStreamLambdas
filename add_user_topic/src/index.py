@@ -150,7 +150,7 @@ def handler(event, context):
     return {
         "statusCode": 200,
         "body": json.dumps({
-            "message": "Topic attached successfully.",
+            "message": "Topic attached successfully!",
             "topic": topic_name,
             "vectorId": vector_id,
         }),
