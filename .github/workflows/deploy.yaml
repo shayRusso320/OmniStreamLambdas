@@ -96,6 +96,15 @@ jobs:
           cd package
           zip -r ../lambda.zip .
 
+      - name: Debug zip structure
+        if: matrix.changed == 'true'
+        working-directory: ${{ matrix.function }}/src
+        run: |
+          echo "=== Zip contents ==="
+          unzip -l lambda.zip | head -40
+          echo "=== Package folder ==="
+          ls package/ | head -20
+
       - name: Configure AWS credentials
         if: matrix.changed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
