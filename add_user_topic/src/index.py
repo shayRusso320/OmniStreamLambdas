@@ -122,6 +122,7 @@ def handler(event, context):
         user_id = get_user_id(event)
         topic_name = get_topic_name(event)
     except (KeyError, ValueError) as e:
+        print(f"ERROR: {e}, event details:\n {event}")
         return {"statusCode": 400, "body": json.dumps({"error": str(e)})}
 
     try:
@@ -147,6 +148,7 @@ def handler(event, context):
         print(f"ERROR: {e}")
         return {"statusCode": 500, "body": json.dumps({"error": "Internal server error."})}
 
+    print(f"SUCCESS: Topic {topic_name} attached for user {user_id}")
     return {
         "statusCode": 200,
         "body": json.dumps({
